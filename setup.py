@@ -15,7 +15,7 @@ setup(
     description='Tool for generating ansible playbook documentation.',
     author='Hidetoshi Hirokawa',
     license='GPLv3',
-    install_requires=['ansible >= 2', 'jinja2', 'ruamel.yaml', 'setuptools'],
+    install_requires=['ansible >= 2', 'jinja2', 'pathlib', 'ruamel.yaml', 'setuptools'],
     package_dir={'': 'libs'},
     packages=find_packages('libs'),
     package_data={

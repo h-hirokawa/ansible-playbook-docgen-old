@@ -5,7 +5,7 @@ import os
 import re
 
 from ansible import constants as C
-from ansible.errors import AnsibleParserError
+from ansible.errors import AnsibleError, AnsibleParserError
 from ansible.parsing.dataloader import DataLoader
 from ansible.playbook.play import Play
 from ansible.playbook.playbook_include import PlaybookInclude
@@ -35,6 +35,11 @@ class CommentedDataLoader(DataLoader):
             except AttributeError:
                 pass  # older versions of yaml don't have dispose function, ignore
 
+    def _get_file_contents(self, file_name):
+        try:
+            return super(CommentedDataLoader, self)._get_file_contents(file_name)
+        except AnsibleError as e:
+            return ('', False)
 
 def _parse_comment_descriptions(comments, maxsplit=-1):
     if not comments or len(comments) < 2:

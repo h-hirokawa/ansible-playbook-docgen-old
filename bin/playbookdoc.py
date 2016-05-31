@@ -86,5 +86,6 @@ def generate_playbook_docs(playbooks, destdir):
         with open(os.path.join(docdir, '{}.md'.format(pb_name)), 'w') as f:
             f.write(re.sub('\n\n+', '\n\n', tmpl.render(playbook=pb, plays=plays)))
 
+
 if __name__ == "__main__":
     main()

@@ -1,32 +1,38 @@
-{% macro show_block(b, depth=0) %}
-{% if depth > 0 or b.always or b.rescue %}
-{{ '  ' * depth }}* Block:
-{{ list_tasks(b.block, depth+1) }}
+{% macro show_block(b) %}
+{% if b.always or b.rescue %}
+* Block:
+{{ list_tasks(b.block)|indent(2, true) }}
 {% if b.rescue %}
-{{ '  ' * depth }}  Rescue:
+  Rescue:
 
-{{ list_tasks(b.rescue, depth+2) }}
+{{ list_tasks(b.rescue)|indent(4, true) }}
 {% endif %}
 {% if b.always %}
-{{ '  ' * depth }}  Always:
+  Always:
 
-{{ list_tasks(b.always, depth+2) }}
+{{ list_tasks(b.always)|indent(4, true) }}
 {% endif %}
 {% else %}
-{{ '  ' * depth }}{{ list_tasks(b.block, depth) }}
+{{ list_tasks(b.block) }}
 {% endif %}
 {% endmacro %}
 
-{% macro list_blocks(blocks, depth=0) %}
+{% macro list_blocks(blocks) %}
 {% for b in blocks %}
-{{ show_block(b, depth=depth) }}
+{{ show_block(b) }}
 {% endfor %}{% endmacro %}
 
-{% macro list_tasks(tasks, depth=0) %}
+{% macro list_tasks(tasks) %}
 {% for t in tasks %}
-{% if t._attributes.block %}{{ show_block(t, depth) }}
+{% if t._attributes.block %}{{ show_block(t) }}
 {% else %}
-{{ '  ' * depth }}* `{{ t.name or t.action }}`
+* `{{ t.name or t.action }}`
+
+  * Action: `{{ t.action }}`
+  {% for arg_name, arg_value in t.args|dictsort %}
+    * {{ arg_name }}: `{{ arg_value }}`
+  {% endfor %}
+  {{ t.serialize() }}
 {% endif %}
 {% endfor %}
 {% endmacro %}
@@ -67,10 +73,12 @@
 #### Other Attributes
 {% for k, v in play.attrs|dictsort %}
 * {{ k }}: {% if v is mapping %}
+
 {% for k2, v2 in v.items() %}
   * {{ k2 }}: `{{ v2 }}`
 {% endfor %}
 {% elif v is sequence and v is not string %}
+
 {% for attr in v %}
   * `{{ attr }}`
 {% endfor %}
