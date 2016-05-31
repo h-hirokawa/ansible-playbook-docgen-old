@@ -1,0 +1,81 @@
+{% macro show_block(b, depth=0) %}
+{% if depth > 0 or b.always or b.rescue %}
+{{ '  ' * depth }}* Block:
+{{ list_tasks(b.block, depth+1) }}
+{% if b.rescue %}
+{{ '  ' * depth }}  Rescue:
+
+{{ list_tasks(b.rescue, depth+2) }}
+{% endif %}
+{% if b.always %}
+{{ '  ' * depth }}  Always:
+
+{{ list_tasks(b.always, depth+2) }}
+{% endif %}
+{% else %}
+{{ '  ' * depth }}{{ list_tasks(b.block, depth) }}
+{% endif %}
+{% endmacro %}
+
+{% macro list_blocks(blocks, depth=0) %}
+{% for b in blocks %}
+{{ show_block(b, depth=depth) }}
+{% endfor %}{% endmacro %}
+
+{% macro list_tasks(tasks, depth=0) %}
+{% for t in tasks %}
+{% if t._attributes.block %}{{ show_block(t, depth) }}
+{% else %}
+{{ '  ' * depth }}* `{{ t.name or t.action }}`
+{% endif %}
+{% endfor %}
+{% endmacro %}
+
+# `{{ playbook._file_name|basename }}`
+{% if playbook.descs.strip() %}
+
+{{ playbook.descs }}
+{% endif %}
+
+## Plays
+{% for play in plays %}
+
+### Play: {{ play.name }}
+{% if play.descs.strip() %}
+
+{{ play.descs }}
+{% endif %}
+
+* Target Hosts: `{{ play.hosts|join(', ') }}`
+
+{% if play.pre_tasks %}
+#### Pre Tasks
+{{ list_blocks(play.pre_tasks) }}
+{% endif %}
+{% if play.roles %}
+#### Roles
+{% endif %}
+{% if play.tasks %}
+#### Tasks
+{{ list_blocks(play.tasks) }}
+{% endif %}
+{% if play.post_tasks %}
+#### Post Tasks
+{{ list_blocks(play.post_tasks) }}
+{% endif %}
+
+#### Other Attributes
+{% for k, v in play.attrs|dictsort %}
+* {{ k }}: {% if v is mapping %}
+{% for k2, v2 in v.items() %}
+  * {{ k2 }}: `{{ v2 }}`
+{% endfor %}
+{% elif v is sequence and v is not string %}
+{% for attr in v %}
+  * `{{ attr }}`
+{% endfor %}
+{% else %}
+`{{ v }}`
+{% endif %}
+{% endfor %}
+{% endfor %}

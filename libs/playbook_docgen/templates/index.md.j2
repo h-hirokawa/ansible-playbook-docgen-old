@@ -1,0 +1,10 @@
+# {{ project }} Playbooks
+
+## Playbooks
+{% for pb in playbooks %}
+* [{{ pb._file_name|basename }}](playbooks/{{ pb._file_name|basename }}.md)
+{% endfor %}
+
+## Group Variables
+
+## Host Variables
