@@ -1,123 +1,96 @@
-from __future__ import (absolute_import, division, print_function)
+from __future__ import print_function
 
-import json
+import codecs
+import optparse
 import os
-import stat
-import uuid
-import ansible.playbook
+import re
+import sys
 
-from ansible import constants as C
-from ansible.cli import CLI
-from ansible.errors import AnsibleError, AnsibleOptionsError, AnsibleParserError
-from ansible.parsing.yaml.objects import AnsibleBaseYAMLObject
 from ansible.playbook import Playbook
-from ansible.playbook.base import Base
-from ansible.playbook.block import Block
-from ansible.playbook.play import Play
-from ansible.playbook.playbook_include import PlaybookInclude
-from ansible.plugins import get_all_plugin_loaders
 from ansible.vars import VariableManager
-from .yaml.loader import PlaybokDocLoader
+from ansible.errors import AnsibleParserError
+from jinja2 import Environment, PackageLoader
+from pathlib import Path
+from playbook_docgen import CommentedDataLoader
 
-__metaclass__ = type
-
-
-try:
-    from __main__ import display
-except ImportError:
-    from ansible.utils.display import Display
-    display = Display()
+j2_env = Environment(loader=PackageLoader('playbook_docgen', 'templates'),
+                     trim_blocks=True, lstrip_blocks=True)
+j2_env.filters['basename'] = os.path.basename
 
 
-def _json_dump_default(obj):
-    if isinstance(obj, Base):
-        return obj.serialize()
-    elif isinstance(obj, uuid.UUID):
-        return str(obj)
-    return repr(obj)
+def load_playbooks(pb_dir):
+    YAML_EXTENSIONS = ['.yaml', '.yml']
+
+    yamls = []
+    for ext in YAML_EXTENSIONS:
+        yamls.extend(Path(pb_dir).glob('*{}'.format(ext)))
+    loader = CommentedDataLoader()
+    var_manager = VariableManager()
+    for y in yamls:
+        try:
+            yield Playbook.load(y.as_posix(), variable_manager=var_manager, loader=loader)
+        except AnsibleParserError:
+            print('{} is not a valid playbook.'.format(y.as_posix()), file=sys.stderr)
 
 
-class PlaybookDocgenCLI(CLI):
-    def parse(self):
-        # create parser for CLI options
-        parser = CLI.base_parser(
-            usage="%prog playbook.yml",
-            vault_opts=True,
-        )
+def main():
+    parser = optparse.OptionParser(
+        usage="""usage: %prog -o <output_dir> <playbook_dir>""")
 
-        self.options, self.args = parser.parse_args(self.args[1:])
+    parser.add_option('-o', '--output-dir', action='store', dest='destdir',
+                      help='Directory to place all output', default='')
 
-        self.parser = parser
+    (opts, args) = parser.parse_args(sys.argv[1:])
 
-        if len(self.args) == 0:
-            raise AnsibleOptionsError("You must specify a playbook file to run")
+    if not args:
+        parser.error('A playbook directory is required.')
 
-        display.verbosity = self.options.verbosity
-        self.validate_conflicts(vault_opts=True)
+    pb_dir = args[0]
+    if not opts.destdir:
+        parser.error('An output directory is required.')
 
-    def run(self):
+    pb_dir = os.path.abspath(pb_dir)
+    if not os.path.isdir(pb_dir):
+        print('{} is not a directory.'.format(pb_dir), file=sys.stderr)
+        sys.exit(1)
 
-        super(PlaybookDocgenCLI, self).run()
+    playbooks = list(load_playbooks(pb_dir))
 
-        def _parse_block(block, tags):
-            result = u''
-            for task in block.block:
-                if isinstance(task, Block):
-                    result += _parse_block(task, tags)
-                    continue
-                if task.action == 'meta':
-                    continue
-                result += u'      {}'.format(task.name if task.name else task.action)
-                new_tags = sorted(list(tags.union(set(task.tags))))
-                result += u"\tTAGS: [{}]\n" .format(', '.join(new_tags))
-                if task.name:
-                    result += '        action: {}\n'.format(task.action)
-            return result
+    if not playbooks:
+        print('no playbooks found.', file=sys.stderr)
+        sys.exit(1)
 
-        # Note: slightly wrong, this is written so that implicit localhost
-        # Manage passwords
-        vault_pass = None
+    if not os.path.isdir(opts.destdir):
+        os.makedirs(opts.destdir)
 
-        loader = CommentedDataLoader()
+    with codecs.open(os.path.join(opts.destdir, 'index.md'), 'w', 'utf-8') as index_md:
+        index_md.write(j2_env.get_template('index.md.j2').render(
+            project=os.path.basename(pb_dir), playbooks=playbooks,
+        ))
+    generate_playbook_docs(playbooks, opts.destdir)
 
-        if self.options.vault_password_file:
-            # read vault_pass from a file
-            vault_pass = CLI.read_vault_password_file(self.options.vault_password_file, loader=loader)
-            loader.set_vault_password(vault_pass)
-        elif self.options.ask_vault_pass:
-            vault_pass = self.ask_vault_passwords()[0]
-            loader.set_vault_password(vault_pass)
 
-        # create the variable manager, which will be shared throughout
-        # the code, ensuring a consistent view of global variables
-        variable_manager = VariableManager()
+def generate_playbook_docs(playbooks, destdir):
+    def filter_attrs(play, key, value):
+        field_attribute = getattr(play, '_{}'.format(key))
 
-        for playbook in self.args:
-            # initial error check, to make sure all specified playbooks are accessible
-            # before we start running anything through the playbook executor
-            if not os.path.exists(playbook):
-                raise AnsibleError("the playbook: %s could not be found" % playbook)
-            if not (os.path.isfile(playbook) or stat.S_ISFIFO(os.stat(playbook).st_mode)):
-                raise AnsibleError("the playbook: %s does not appear to be a file" % playbook)
+        if key in ('vars',) and not value:
+            return False
 
-            display.display(u'\nplaybook: {}'.format(playbook))
+        default = None
+        if hasattr(field_attribute, 'default'):
+            default = field_attribute.default
 
-            pb = Playbook.load(playbook, variable_manager=variable_manager, loader=loader)
-            plays = pb.get_plays()
-            for i, play in enumerate(plays):
-                msg = u"\n  play #{} ({}): {}".format(i + 1, ','.join(play.hosts), play.name)
-                tags = set(play.tags)
-                msg += u'\tTAGS: [{}]'.format(','.join(tags))
+        return key not in ('uuid', 'name', 'hosts', 'pre_tasks', 'tasks', 'post_tasks', 'roles') and default != value
 
-                display.display(msg)
-                if play.descs:
-                    display.display(u'    description:\n      {}'.format('\n      '.join(play.descs)))
-
-                taskmsg = '    tasks:\n'
-
-                blocks = play.compile()
-                for block in blocks:
-                    taskmsg += _parse_block(block, tags)
-                display.display(taskmsg)
-
-        return 0
+    docdir = os.path.join(destdir, 'playbooks')
+    if not os.path.isdir(docdir):
+        os.makedirs(docdir)
+    tmpl = j2_env.get_template('playbook.md.j2')
+    for pb in playbooks:
+        pb_name = os.path.basename(pb._file_name)
+        plays = pb.get_plays()
+        for p in plays:
+            p.attrs = {k: v for k, v in p.serialize().items() if filter_attrs(p, k, v)}
+        with codecs.open(os.path.join(docdir, '{}.md'.format(pb_name)), 'w', 'utf-8') as f:
+            f.write(re.sub('\n\n+', '\n\n', tmpl.render(playbook=pb, plays=plays)))

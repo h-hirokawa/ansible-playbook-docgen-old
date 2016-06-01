@@ -38,5 +38,8 @@ setup(
         'Topic :: System :: Systems Administration',
         'Topic :: Utilities',
     ],
+    scripts=[
+        "bin/ansible-playbook-docgen",
+    ],
     data_files=[],
 )

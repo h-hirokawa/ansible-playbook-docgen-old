@@ -26,13 +26,13 @@
 {% for t in tasks %}
 {% if t._attributes.block %}{{ show_block(t) }}
 {% else %}
-* `{{ t.name or t.action }}`
+* _{{ t.name or t.action }}_
 
   * Action: `{{ t.action }}`
   {% for arg_name, arg_value in t.args|dictsort %}
     * {{ arg_name }}: `{{ arg_value }}`
   {% endfor %}
-  {{ t.serialize() }}
+
 {% endif %}
 {% endfor %}
 {% endmacro %}
